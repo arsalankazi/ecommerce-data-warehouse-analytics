@@ -1,0 +1,22 @@
+Set-Content -Path .\.gitignore -Value @'
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Database & Environment
+.env
+pgdata/
+
+# IDE / OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+'@
