@@ -1,22 +1,32 @@
-Set-Content -Path .\.gitignore -Value @'
 # Virtual Environment
 venv/
 ENV/
 env/
 
-# Python Cache
+# Python Cache & Build Artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.pytest_cache/
 
-# Database & Environment
+# Environment Configurations & Secrets
 .env
-pgdata/
+*.env
+config/credentials
 
-# IDE / OS Files
+# Local Database Dumps & Raw Datasets
+pgdata/
+data/*.csv
+data/*.parquet
+data/*.json
+
+# Runtime Logs
+logs/
+*.log
+
+# IDE & OS Metadata
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-'@

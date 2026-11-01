@@ -1,10 +1,15 @@
+import sys
 import pandas as pd
 from tabulate import tabulate
 from db_engine import get_engine
 
 def run_analytics():
-    engine = get_engine()
-    
+    try:
+        engine = get_engine()
+    except Exception as e:
+        print(f">>> [FATAL] Database connection failed: {e}")
+        return 1
+
     # Query 1: RFM Customer Segmentation via NTILE(5)
     rfm_query = """
     WITH customer_aggregations AS (
@@ -83,19 +88,24 @@ def run_analytics():
     LIMIT 6;
     """
 
-    with engine.connect() as conn:
-        print("\n" + "=" * 80)
-        print(">>> 1. RFM CUSTOMER SEGMENTATION (NTILE STATISTICAL WINDOWING)")
-        print("=" * 80)
-        df_rfm = pd.read_sql(rfm_query, conn)
-        print(tabulate(df_rfm, headers="keys", tablefmt="grid", showindex=False))
+    try:
+        with engine.connect() as conn:
+            print("\n" + "=" * 80)
+            print(">>> 1. RFM CUSTOMER SEGMENTATION (NTILE STATISTICAL WINDOWING)")
+            print("=" * 80)
+            df_rfm = pd.read_sql(rfm_query, conn)
+            print(tabulate(df_rfm, headers="keys", tablefmt="grid", showindex=False))
 
-        print("\n" + "=" * 80)
-        print(">>> 2. MONTH-OVER-MONTH GROWTH & 3-MONTH MOVING AVG (LAG / ROLLING WINDOWS)")
-        print("=" * 80)
-        df_mom = pd.read_sql(mom_query, conn)
-        print(tabulate(df_mom, headers="keys", tablefmt="grid", showindex=False))
-        print()
+            print("\n" + "=" * 80)
+            print(">>> 2. MONTH-OVER-MONTH GROWTH & 3-MONTH MOVING AVG (LAG / ROLLING WINDOWS)")
+            print("=" * 80)
+            df_mom = pd.read_sql(mom_query, conn)
+            print(tabulate(df_mom, headers="keys", tablefmt="grid", showindex=False))
+            print()
+            return 0
+    except Exception as err:
+        print(f">>> [ERROR] Analytics query execution failed: {err}")
+        return 1
 
 if __name__ == "__main__":
-    run_analytics()
+    sys.exit(run_analytics())

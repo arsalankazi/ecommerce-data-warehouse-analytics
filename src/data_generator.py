@@ -8,10 +8,16 @@ fake = Faker()
 Faker.seed(42)
 random.seed(42)
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+# Decoupled Data Directory with Environment Fallback
+DEFAULT_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+DATA_DIR = os.getenv("WAREHOUSE_DATA_DIR", DEFAULT_DATA_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 
-def generate_mock_dataset(num_customers=200, num_products=50, num_orders=2500):
+def generate_mock_dataset(
+    num_customers=int(os.getenv("GEN_NUM_CUSTOMERS", 200)),
+    num_products=int(os.getenv("GEN_NUM_PRODUCTS", 50)),
+    num_orders=int(os.getenv("GEN_NUM_ORDERS", 2500))
+):
     print(">>> Generating raw e-commerce operational datasets...")
 
     # 1. Customers

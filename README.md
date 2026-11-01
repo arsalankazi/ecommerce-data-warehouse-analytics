@@ -12,9 +12,9 @@ An enterprise-grade, relational data warehouse engineered to deliver low-latency
 
 ## 📌 Executive Summary & Architecture
 
-Modern data warehousing requires strict boundaries between operational ingestion and analytical query processing. This system eliminates data integrity risks, connection exhaustion, and query bottlenecks through:
+Modern data warehousing requires strict boundaries between operational ingestion, secure credential lifecycle, and analytical processing. This system eliminates data integrity risks, connection exhaustion, and query bottlenecks through:
 
-1. **Dimensional Modeling:** Strict Star Schema design segregating business transactions (`fact_order_items`) from analytical entity context (`dim_customers`, `dim_products`, `dim_dates`).
+1. **Dimensional Modeling:** Strict Star Schema design segregating transactional facts (`fact_order_items`) from analytical entity context (`dim_customers`, `dim_products`, `dim_dates`).
 2. **Resilient Connection Pooling:** SQLAlchemy `QueuePool` configuration that manages persistent connections and burst traffic with automatic liveness checks (`pool_pre_ping`).
 3. **Automated Quality Audits:** Pre-consumption gatekeeper audits verifying foreign key integrity, non-null guarantees, domain validity, and primary key collision prevention.
 4. **Statistical SQL Intelligence:** Advanced window queries calculating dynamic customer segmentation (RFM Quintiles via `NTILE`) and financial velocity (Month-over-Month growth and rolling averages via `LAG`).
@@ -70,6 +70,17 @@ flowchart TD
     style StarSchema fill:#2b1c00,stroke:#f57c00,stroke-width:1px,color:#ffffff
     style Downstream fill:#0d2318,stroke:#388e3c,stroke-width:1px,color:#ffffff
 ```
+
+---
+
+## 🔒 Security & Secrets Management (Twelve-Factor Standards)
+
+The project adheres to Twelve-Factor application principles to prevent credential leakage and ensure reproducible local deployments:
+
+- **Environment-Driven Configuration:** All database credentials (`DB_USER`, `DB_PASS`, `DB_HOST`, `DB_PORT`, `DB_NAME`) are decoupled from application code and read dynamically from `.env` with sanitized local defaults.
+- **Special Character URL Encoding:** Uses `urllib.parse.quote_plus` on database usernames and passwords to prevent connection string parsing attacks or connection dropouts.
+- **Strict Repository Hygiene:** `.gitignore` excludes active secrets (`.env`, `*.env`), runtime database volumes (`pgdata/`), generated datasets (`data/*.csv`), and Python bytecode.
+- **Network Isolation:** PostgreSQL port bindings in `docker-compose.yml` are restricted to local loopback (`127.0.0.1:5433:5432`) rather than public broadcast interfaces.
 
 ---
 
@@ -228,25 +239,24 @@ Measures month-to-month sales velocity and calculates smoothed revenue trends us
 
 ```text
 ecommerce-data-warehouse-analytics/
-├── data/
-│   ├── raw_customers.csv
-│   ├── raw_orders.csv
-│   └── raw_products.csv
-├── sql/
-│   ├── ddl_schema.sql             # DDL defining Star Schema, tables, and B-tree indexes
-│   └── analytics_kpis.sql         # Production analytical window queries
-├── src/
-│   ├── db_engine.py               # SQLAlchemy QueuePool connection manager
-│   ├── data_generator.py          # Controlled mock transaction generator (Faker)
-│   ├── etl_pipeline.py            # Surrogate key resolution & chunked loading logic
-│   ├── data_quality.py            # Automated reconciliation & integrity test suite
-│   └── run_analytics.py           # SQL window execution script
-├── scripts/
-│   ├── setup_db.ps1               # Container provisioning & schema setup
-│   └── run_etl.ps1                # Batch ETL orchestration pipeline
+├── .env.example                    # Sanitized environment template for public version control
+├── .gitignore                      # Exclusion rules for secrets, DB data, logs, and datasets
 ├── docker-compose.yml              # Dedicated PostgreSQL container configuration
-├── requirements.txt               # Locked dependencies
-└── README.md                      # Architecture documentation & telemetry metrics
+├── requirements.txt                # Locked Python dependencies
+├── README.md                       # Architecture documentation & telemetry metrics
+├── data/                           # Local operational data storage (excluded from VCS)
+├── sql/
+│   ├── ddl_schema.sql              # DDL defining Star Schema, tables, and B-tree indexes
+│   └── analytics_kpis.sql          # Production analytical window queries
+├── src/
+│   ├── db_engine.py                # SQLAlchemy QueuePool connection manager
+│   ├── data_generator.py           # Controlled mock transaction generator (Faker)
+│   ├── etl_pipeline.py             # Surrogate key resolution & chunked loading logic
+│   ├── data_quality.py             # Automated reconciliation & integrity test suite
+│   └── run_analytics.py            # SQL window execution script
+└── scripts/
+    ├── setup_db.ps1                # Container provisioning & schema setup
+    └── run_etl.ps1                 # Batch ETL orchestration pipeline
 ```
 
 ---
@@ -276,12 +286,15 @@ git clone https://github.com/arsalankazi/ecommerce-data-warehouse-analytics.git
 cd ecommerce-data-warehouse-analytics
 ```
 
-**2. Initialize Python Environment:**
+**2. Initialize Python Environment & Secrets:**
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+# Create local environment config from sanitized template
+Copy-Item .env.example .env
 ```
 
 **3. Spin up Infrastructure & Initialize DDL:**
@@ -315,7 +328,7 @@ python src\run_analytics.py
 
 [![GitHub](https://img.shields.io/badge/GitHub-Profile-181717?style=flat&logo=github)](https://github.com/arsalankazi)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat&logo=linkedin)](https://linkedin.com/in/arsalankazi)
-[![Email](https://img.shields.io/badge/Email-Contact-D14836?style=flat&logo=gmail)](mailto:arsalankazi.dev@gmail.com)
+[![Email](https://img.shields.io/badge/Email-Contact-D14836?style=flat&logo=gmail)](mailto:kaziarsalan810@gmail.com)
 
 ---
 

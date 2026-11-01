@@ -3,7 +3,9 @@ import pandas as pd
 from sqlalchemy import text
 from db_engine import get_engine
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+# Decoupled Data Directory with Environment Fallback
+DEFAULT_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+DATA_DIR = os.getenv("WAREHOUSE_DATA_DIR", DEFAULT_DATA_DIR)
 
 def populate_date_dimension(engine, start_date="2025-01-01", end_date="2027-12-31"):
     print(">>> [ETL] Populating dim_dates calendar table...")
@@ -34,7 +36,8 @@ def run_etl():
     
     # 2. Customer Dimension
     print(">>> [ETL] Loading dim_customers...")
-    df_cust = pd.read_csv(os.path.join(DATA_DIR, "raw_customers.csv"))
+    cust_file = os.path.join(DATA_DIR, "raw_customers.csv")
+    df_cust = pd.read_csv(cust_file)
     df_cust["signup_date"] = pd.to_datetime(df_cust["signup_date"]).dt.date
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE dim_customers CASCADE;"))
@@ -43,7 +46,8 @@ def run_etl():
 
     # 3. Product Dimension
     print(">>> [ETL] Loading dim_products...")
-    df_prod = pd.read_csv(os.path.join(DATA_DIR, "raw_products.csv"))
+    prod_file = os.path.join(DATA_DIR, "raw_products.csv")
+    df_prod = pd.read_csv(prod_file)
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE dim_products CASCADE;"))
     df_prod.to_sql("dim_products", con=engine, if_exists="append", index=False, method="multi", chunksize=500)
@@ -51,7 +55,9 @@ def run_etl():
 
     # 4. Fact Table Ingestion with Surrogate Key Lookup
     print(">>> [ETL] Transforming and resolving keys for fact_order_items...")
-    df_orders = pd.read_csv(os.path.join(DATA_DIR, "raw_orders.csv"))
+    orders_file = os.path.join(DATA_DIR, "raw_orders.csv")
+    df_orders = pd.read_csv(orders_file)
+    initial_orders_count = len(df_orders)
     
     with engine.connect() as conn:
         cust_map = pd.read_sql("SELECT customer_key, customer_id FROM dim_customers", conn)
@@ -63,6 +69,11 @@ def run_etl():
     # Surrogate Key Joins
     df_fact = df_orders.merge(cust_map, on="customer_id", how="inner")
     df_fact = df_fact.merge(prod_map, on="product_id", how="inner")
+    
+    resolved_count = len(df_fact)
+    if resolved_count < initial_orders_count:
+        dropped = initial_orders_count - resolved_count
+        print(f">>> [WARN] {dropped} unmapped records dropped during surrogate key resolution.")
 
     cols_to_keep = [
         "order_item_id", "order_id", "customer_key", "product_key", "date_id",

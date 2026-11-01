@@ -4,7 +4,12 @@ from tabulate import tabulate
 from db_engine import get_engine
 
 def run_quality_audits():
-    engine = get_engine()
+    try:
+        engine = get_engine()
+    except Exception as e:
+        print(f">>> [FATAL] Database connection failed: {e}")
+        return 1
+
     print("=" * 65)
     print(">>> STARTING DATA WAREHOUSE INTEGRITY & RECONCILIATION AUDIT")
     print("=" * 65)
@@ -49,18 +54,22 @@ def run_quality_audits():
     results = []
     all_passed = True
 
-    with engine.connect() as conn:
-        for audit in audits:
-            val = conn.execute(text(audit["query"])).scalar()
-            passed = (val == audit["expected"])
-            if not passed:
-                all_passed = False
-            results.append([
-                audit["name"],
-                val,
-                audit["expected"],
-                "PASSED" if passed else "FAILED"
-            ])
+    try:
+        with engine.connect() as conn:
+            for audit in audits:
+                val = conn.execute(text(audit["query"])).scalar()
+                passed = (val == audit["expected"])
+                if not passed:
+                    all_passed = False
+                results.append([
+                    audit["name"],
+                    val,
+                    audit["expected"],
+                    "PASSED" if passed else "FAILED"
+                ])
+    except Exception as err:
+        print(f">>> [ERROR] Quality audit execution query failed: {err}")
+        return 1
 
     print(tabulate(results, headers=["Audit Check", "Found", "Expected", "Status"], tablefmt="grid"))
     
