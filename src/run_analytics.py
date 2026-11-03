@@ -90,15 +90,11 @@ def run_analytics():
 
     try:
         with engine.connect() as conn:
-            print("\n" + "=" * 80)
-            print(">>> 1. RFM CUSTOMER SEGMENTATION (NTILE STATISTICAL WINDOWING)")
-            print("=" * 80)
+            print("\n>>> 1. RFM CUSTOMER SEGMENTATION (NTILE STATISTICAL WINDOWING)")
             df_rfm = pd.read_sql(rfm_query, conn)
             print(tabulate(df_rfm, headers="keys", tablefmt="grid", showindex=False))
 
-            print("\n" + "=" * 80)
-            print(">>> 2. MONTH-OVER-MONTH GROWTH & 3-MONTH MOVING AVG (LAG / ROLLING WINDOWS)")
-            print("=" * 80)
+            print("\n>>> 2. MONTH-OVER-MONTH GROWTH & 3-MONTH MOVING AVG (LAG / ROLLING WINDOWS)")
             df_mom = pd.read_sql(mom_query, conn)
             print(tabulate(df_mom, headers="keys", tablefmt="grid", showindex=False))
             print()

@@ -1,10 +1,12 @@
-# Enterprise E-Commerce Data Warehouse: Kimball Star Schema, Connection-Pooled ETL & SQL Window Analytics
+# 🗄️ Enterprise E-Commerce Data Warehouse
 
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-316192?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+**Kimball Star Schema • Connection-Pooled ETL • SQL Window Analytics**
+
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 An enterprise-grade, relational data warehouse engineered to deliver low-latency analytical aggregations on high-volume e-commerce transactions. Built around the **Kimball Dimensional Modeling methodology**, this warehouse orchestrates automated batch ingestion with resilient SQLAlchemy connection pooling, enforces strict pre-load data quality reconciliations, and models complex business KPIs through optimized PostgreSQL window functions.
 
@@ -20,6 +22,7 @@ Modern data warehousing requires strict boundaries between operational ingestion
 4. **Statistical SQL Intelligence:** Advanced window queries calculating dynamic customer segmentation (RFM Quintiles via `NTILE`) and financial velocity (Month-over-Month growth and rolling averages via `LAG`).
 
 ```mermaid
+%%{init: {'themeVariables': {'edgeLabelBackground': '#0d3c61', 'textColor': '#ffffff'}, 'flowchart': {'nodeSpacing': 40, 'rankSpacing': 40}}}%%
 flowchart TD
     subgraph Sources ["1. Operational Source Data"]
         RAW["Raw Operational CSVs<br/>(Customers, Products, Transactions)"]
@@ -162,8 +165,9 @@ engine = create_engine(
 )
 ```
 
-### 2. Idempotent Ingestion & Key Resolution (`src/etl_pipeline.py`)
+### 2. Idempotent Full-Refresh Ingestion & Key Resolution (`src/etl_pipeline.py`)
 
+- **Idempotency via TRUNCATE + Reload:** Every pipeline run begins by executing `TRUNCATE TABLE ... CASCADE` on all dimension and fact tables before reloading. This guarantees safe reruns — a rerun can never produce duplicate `order_item_id` values, and each execution produces an identical warehouse state. For production-scale incremental loads, this will migrate to `INSERT ... ON CONFLICT (order_item_id) DO UPDATE` (tracked in Future Improvements).
 - **Surrogate Key Resolution:** Replaces raw operational identifiers (`customer_id`, `product_id`) with clean integer surrogate keys (`customer_key`, `product_key`) inside memory buffers before committing records.
 - **Chunked Batch Loading:** Utilizes `to_sql(..., method='multi', chunksize=1000)` to execute multi-value batched SQL statements, cutting down network round-trips to the PostgreSQL cluster.
 
@@ -175,7 +179,7 @@ Before the warehouse publishes tables for downstream analytics, an automated rec
 
 ## 📊 Live Telemetry & Verification
 
-The pipeline has been validated end-to-end against a **6,256-transaction operational run** on containerized infrastructure.
+The pipeline has been validated end-to-end against a synthetic 6,256-transaction dataset (generated via Faker) on containerized PostgreSQL 15 infrastructure.
 
 ### 1. Data Quality Audit Telemetry
 
@@ -202,7 +206,47 @@ The pipeline has been validated end-to-end against a **6,256-transaction operati
 
 #### A. RFM Customer Segmentation (`NTILE(5)` Statistical Windowing)
 
-Segments the customer base into 5 statistical quintiles across Recency, Frequency, and Monetary attributes to isolate VIP champions from churn-risk cohorts:
+Segments the customer base into 5 statistical quintiles across Recency, Frequency, and Monetary attributes to isolate VIP champions from churn-risk cohorts.
+
+**The query (`sql/analytics_kpis.sql`):**
+
+```sql
+WITH customer_aggregations AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        MAX(d.full_date)                    AS last_order_date,
+        COUNT(DISTINCT f.order_id)          AS total_orders,
+        ROUND(SUM(f.total_amount), 2)       AS monetary_value
+    FROM fact_order_items f
+    JOIN dim_customers c ON f.customer_key = c.customer_key
+    JOIN dim_dates    d ON f.date_id      = d.date_id
+    WHERE f.order_status = 'Completed'
+    GROUP BY c.customer_id, c.customer_name
+),
+rfm_scores AS (
+    SELECT
+        customer_id, customer_name, last_order_date, total_orders, monetary_value,
+        NTILE(5) OVER (ORDER BY last_order_date)  AS r_score,
+        NTILE(5) OVER (ORDER BY total_orders)     AS f_score,
+        NTILE(5) OVER (ORDER BY monetary_value)   AS m_score
+    FROM customer_aggregations
+)
+SELECT
+    customer_id, customer_name, total_orders, monetary_value,
+    (r_score + f_score + m_score) AS composite_rfm_score,
+    CASE
+        WHEN (r_score + f_score + m_score) >= 12 THEN 'VIP Champions'
+        WHEN (r_score + f_score + m_score) >= 9  THEN 'Loyal Customers'
+        WHEN (r_score + f_score + m_score) >= 6  THEN 'Potential Churn Risk'
+        ELSE 'Hibernating / Lost'
+    END AS customer_segment
+FROM rfm_scores
+ORDER BY composite_rfm_score DESC, monetary_value DESC
+LIMIT 10;
+```
+
+**Live output on the 6,256-row dataset:**
 
 ```text
 +---------------+--------------------+----------------+------------------+-------------+---------------+
@@ -218,7 +262,38 @@ Segments the customer base into 5 statistical quintiles across Recency, Frequenc
 
 #### B. Month-over-Month (MoM) Growth & 3-Month Moving Average (`LAG()`)
 
-Measures month-to-month sales velocity and calculates smoothed revenue trends using physical framing windows (`ROWS BETWEEN 2 PRECEDING AND CURRENT ROW`):
+Measures month-to-month sales velocity and calculates smoothed revenue trends using physical framing windows (`ROWS BETWEEN 2 PRECEDING AND CURRENT ROW`).
+
+**The query (`sql/analytics_kpis.sql`):**
+
+```sql
+WITH monthly_revenue AS (
+    SELECT
+        d.year, d.month_num, d.month_name,
+        ROUND(SUM(f.total_amount), 2)  AS current_month_revenue,
+        COUNT(DISTINCT f.order_id)     AS total_orders
+    FROM fact_order_items f
+    JOIN dim_dates d ON f.date_id = d.date_id
+    WHERE f.order_status IN ('Completed', 'Shipped')
+    GROUP BY d.year, d.month_num, d.month_name
+)
+SELECT
+    year, month_name, current_month_revenue,
+    LAG(current_month_revenue, 1) OVER (ORDER BY year, month_num) AS previous_month_revenue,
+    ROUND(
+        (current_month_revenue - LAG(current_month_revenue, 1) OVER (ORDER BY year, month_num))
+        / NULLIF(LAG(current_month_revenue, 1) OVER (ORDER BY year, month_num), 0) * 100, 2
+    ) AS mom_growth_pct,
+    ROUND(
+        AVG(current_month_revenue) OVER (
+            ORDER BY year, month_num ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ), 2
+    ) AS rolling_3_month_avg_revenue
+FROM monthly_revenue
+ORDER BY year, month_num;
+```
+
+**Live output on the 6,256-row dataset:**
 
 ```text
 +--------+--------------+-------------------------+------------------+------------------+-------------------+
@@ -242,7 +317,7 @@ ecommerce-data-warehouse-analytics/
 ├── .env.example                    # Sanitized environment template for public version control
 ├── .gitignore                      # Exclusion rules for secrets, DB data, logs, and datasets
 ├── docker-compose.yml              # Dedicated PostgreSQL container configuration
-├── requirements.txt                # Locked Python dependencies
+├── requirements.txt                # Version-constrained Python dependencies
 ├── README.md                       # Architecture documentation & telemetry metrics
 ├── data/                           # Local operational data storage (excluded from VCS)
 ├── sql/
@@ -266,7 +341,7 @@ ecommerce-data-warehouse-analytics/
 - **Data Warehouse Engine:** PostgreSQL 15 (Docker containerized)
 - **Data Modeling:** Ralph Kimball Star Schema Methodology (Surrogate Keys, Fact Tables, Dimension Tables)
 - **Programming & Libraries:** Python 3.10+, SQLAlchemy 2.0 (`QueuePool`), `psycopg2-binary`, Pandas, Faker, Tabulate
-- **Infrastructure & Automation:** Docker Compose, PowerShell
+- **Infrastructure & Automation:** Docker Compose, PowerShell (Windows-native orchestration scripts)
 
 ---
 
@@ -276,6 +351,7 @@ ecommerce-data-warehouse-analytics/
 
 - Docker Desktop installed and running.
 - Python 3.10+ installed.
+- **Hardware:** 2GB+ RAM (for PostgreSQL 15 container), ~500MB free disk space.
 
 ### Execution Instructions
 
@@ -317,6 +393,17 @@ python src\run_analytics.py
 
 ---
 
+## 🚀 Future Improvements
+
+- **Incremental Loading:** Migrate from full-refresh `TRUNCATE + reload` to incremental ingestion using `WHERE updated_at > last_load_ts` and `INSERT ... ON CONFLICT (order_item_id) DO UPDATE` — eliminating redundant reloads on large warehouses.
+- **SCD Type 2:** Add slowly changing dimension logic to `dim_customers` (with `valid_from` / `valid_to` / `is_current` columns) to track historical address and email changes.
+- **CI/CD Pipeline:** GitHub Actions workflow to run pytest unit tests and the `data_quality.py` audit suite on every push and pull request.
+- **Cross-Platform Orchestration:** Provide Bash equivalents (`setup_db.sh`, `run_etl.sh`) for Linux / macOS contributors.
+- **Workflow Orchestration:** Migrate from PowerShell wrapper scripts to Airflow or Prefect for scheduling, retries, and observability.
+- **Testing:** Add pytest unit tests for surrogate key resolution and ETL transformation logic (`data_quality.py` currently covers post-load validation, not unit tests).
+
+---
+
 ## 👨‍💻 Author & Maintainer
 
 <p align="left">
@@ -324,11 +411,11 @@ python src\run_analytics.py
 </p>
 
 ### **Kazi Arsalan Ajaj Ahmed**
-*Data Engineer & Warehouse Architect*
+*Data Engineer | Big Data & Cloud*
 
-[![GitHub](https://img.shields.io/badge/GitHub-Profile-181717?style=flat&logo=github)](https://github.com/arsalankazi)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat&logo=linkedin)](https://linkedin.com/in/arsalankazi)
-[![Email](https://img.shields.io/badge/Email-Contact-D14836?style=flat&logo=gmail)](mailto:kaziarsalan810@gmail.com)
+[![GitHub](https://img.shields.io/badge/GitHub-Profile-181717?style=for-the-badge&logo=github)](https://github.com/arsalankazi)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/arsalankazi)
+[![Email](https://img.shields.io/badge/Email-Contact-D14836?style=for-the-badge&logo=gmail)](mailto:kaziarsalan810@gmail.com)
 
 ---
 
