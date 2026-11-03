@@ -171,9 +171,9 @@ engine = create_engine(
 - **Surrogate Key Resolution:** Replaces raw operational identifiers (`customer_id`, `product_id`) with clean integer surrogate keys (`customer_key`, `product_key`) inside memory buffers before committing records.
 - **Chunked Batch Loading:** Utilizes `to_sql(..., method='multi', chunksize=1000)` to execute multi-value batched SQL statements, cutting down network round-trips to the PostgreSQL cluster.
 
-### 3. Automated Data Quality Gatekeeper (`src/data_quality.py`)
+### 3. Automated Post-Load Data Quality Gatekeeper (`src/data_quality.py`)
 
-Before the warehouse publishes tables for downstream analytics, an automated reconciliation suite evaluates four business rules. If any check fails, execution aborts with exit code `1`.
+After the ETL batch finishes loading, an automated reconciliation suite evaluates four business rules (FK integrity, nulls, quantity > 0, PK duplicates). If any check fails, execution aborts with exit code `1`.
 
 ---
 
@@ -262,7 +262,7 @@ LIMIT 10;
 
 #### B. Month-over-Month (MoM) Growth & 3-Month Moving Average (`LAG()`)
 
-Measures month-to-month sales velocity and calculates smoothed revenue trends using physical framing windows (`ROWS BETWEEN 2 PRECEDING AND CURRENT ROW`).
+Calculates Month-over-Month revenue growth using `LAG()`, and calculates the 3-month moving average using `AVG() OVER (ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)`.
 
 **The query (`sql/analytics_kpis.sql`):**
 
